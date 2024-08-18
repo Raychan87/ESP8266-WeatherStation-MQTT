@@ -20,22 +20,22 @@
 #define I2C_INA219 0x40 //INA219
 
 //
-#define LOOP_TIME 5000  //ms
-#define SLEEP_TIME 10   //sec
+#define LOOP_TIME 500  //ms
+#define SLEEP_TIME 30   //sec
 #define SLEEP_MODE 1    //0 = OFF, 1 = ON
 #define BAUDRATE 115200
-#define TEMP_CORR -3.0  //K
+#define TEMP_CORR -0.45 //K
 
 //MQTT Topic fürs empfangen von Daten
-#define MQTT_SUB_LOOPTIME "ESP8266-Wetter/wachtime_ms" 
-#define MQTT_SUB_SLEEPTIME "ESP8266-Wetter/sleeptime_s"
-#define MQTT_SUB_SLEEPMODE "ESP8266-Wetter/sleepmode"
-#define MQTT_SUB_TEMPCORR "ESP8266-Wetter/tempkorrektur"
+//#define MQTT_SUB_LOOPTIME "ESP8266-Wetter/looptime" 
+//#define MQTT_SUB_SLEEPTIME "ESP8266-Wetter/sleeptime"
+//#define MQTT_SUB_SLEEPMODE "ESP8266-Wetter/sleepmode"
+//#define MQTT_SUB_TEMPCORR "ESP8266-Wetter/tempkorrektur"
 
 //MQTT Topic fürs senden von Daten
 #define MQTT_TX_PRES "ESP8266-Wetter/luftdruck"
 #define MQTT_TX_TEMP "ESP8266-Wetter/temperatur"
-#define MQTT_TX_HUMI "ESP8266-Wetter/feuchtigkeit"
+#define MQTT_TX_HUMI "ESP8266-Wetter/luftfeuchtigkeit"
 #define MQTT_TX_AMP "ESP8266-Wetter/strom_ma"
 #define MQTT_TX_PWR "ESP8266-Wetter/leistung_mw"
 #define MQTT_TX_BUS_V "ESP8266-Wetter/verbraucher_v"
@@ -46,11 +46,10 @@
 //Var
 int dutyCycle, DutyCounter;
 float Temperatur, Luftdruck, Luftfeuchtigkeit;
-struct config {
-  int LoopTime;
-  int SleepTime;
-  int SleepMode;
-  float TempCorr;
+int LoopTime = LOOP_TIME;
+int SleepTime = SLEEP_TIME;
+int SleepMode = SLEEP_MODE;
+float TempCorr = TEMP_CORR;
 unsigned long previousMillis = 0;  
 const char* MQTT_Clint_Name = "ESP-Wetter";
 //INA219
@@ -105,16 +104,17 @@ void reconnect() {
 			delay(5000);
 		}else{
       Serial.println("MQTT connected");
-      client.subscribe(MQTT_SUB_LOOPTIME); //Eine Subscribe abonieren.
-      client.subscribe(MQTT_SUB_SLEEPTIME); //Eine Subscribe abonieren.
-      client.subscribe(MQTT_SUB_SLEEPMODE); //Eine Subscribe abonieren.
-      client.subscribe(MQTT_SUB_TEMPCORR); //Eine Subscribe abonieren.
+      //client.subscribe(MQTT_SUB_LOOPTIME); //Eine Subscribe abonieren.
+      //client.subscribe(MQTT_SUB_SLEEPTIME); //Eine Subscribe abonieren.
+      //client.subscribe(MQTT_SUB_SLEEPMODE); //Eine Subscribe abonieren.
+      //client.subscribe(MQTT_SUB_TEMPCORR); //Eine Subscribe abonieren.
     }
 	}
 }
 
 //________________________________________________________
 //MQTT Empfangen der Topics
+/*
 void callback(char* topic, byte* payload, unsigned int length) {
 
   char msg[10];
@@ -130,31 +130,25 @@ void callback(char* topic, byte* payload, unsigned int length) {
 
   //LoopTime
   if (srtTopic == MQTT_SUB_LOOPTIME){
-    config.LoopTime = msg_wert;
+    LoopTime = msg_wert;
   }
 
   //SleepTime
   if (srtTopic == MQTT_SUB_SLEEPTIME){
-    config.SleepTime = msg_wert;
+    SleepTime = msg_wert;
   }
 
   //SleepMode
   if (srtTopic == MQTT_SUB_SLEEPMODE){
-    config.SleepMode = msg_wert;
+    SleepMode = msg_wert;
   }
 
   //Temperatur Korrektur
   if (srtTopic == MQTT_SUB_TEMPCORR){
-    config.TempCorr = msg_wert;
+    TempCorr = msg_wert;
   }
-
-  //Schreiben der Daten in den EEPROM
-  EEPROM.begin(256);      //Puffergröße die verwendet werden soll
-  EEPROM.put(0, config);  //Schreiben einer Structur ab Adresse 0
-  EEPROM.commit();        //Übernahme in den Flash
-  EEPROM.end();           //Schließt die EEPROM Operation
 }
-
+*/
 //________________________________________________________
 //Init
 void setup() {
@@ -163,7 +157,7 @@ void setup() {
   ina219.begin();         //INA219 Messung starten
 	setup_wifi();           //Wlan verbinden
 	client.setServer(MQTT_BROKER, MQTT_PORT); //MQTT Broker
-  client.setCallback(callback); //MQTT Empfangen von Nachrichten aktivieren
+ // client.setCallback(callback); //MQTT Empfangen von Nachrichten aktivieren
 }
 
 //________________________________________________________
@@ -179,7 +173,7 @@ void loop() {
 	client.loop();
 
   //Loop mit Delay
-  if (currentMillis - previousMillis >= config.LoopTime) {
+  if (currentMillis - previousMillis >= LoopTime) {
     previousMillis = currentMillis;
 
     //********************************************//
@@ -191,7 +185,7 @@ void loop() {
       Temperatur = Temperatur + bme.readTemperature();
     }
     Temperatur = Temperatur / 3;
-    Temperatur = Temperatur + config.TempCorr;
+    Temperatur = Temperatur + TempCorr;
     client.publish(MQTT_TX_TEMP,String(Temperatur).c_str(),true); //MQTT
 
     //Luftfeuchtigkeit Messung 
@@ -234,13 +228,13 @@ void loop() {
     client.publish(MQTT_TX_PWR,String(power_mW).c_str(),true); //MQTT
   
     //Energiesparmodus
-    if (config.SleepMode){
+    if (SleepMode){
 
-      delay(250);
+      delay(500);
 
       // Die Zeit ist in Mikrosekunden angegeben
       // 1 Sekunde = 1.000.000 Mikrosekunden
-      ESP.deepSleep(1e6 * config.SleepTime); // ESP8266 in den Deep-Sleep-Modus versetzen
+      ESP.deepSleep(1e6 * SleepTime); // ESP8266 in den Deep-Sleep-Modus versetzen
     }    
   }
 }
