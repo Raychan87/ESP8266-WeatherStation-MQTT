@@ -20,7 +20,8 @@
 #define I2C_INA219 0x40 //INA219
 
 //
-#define SLEEP_TIME 600  //sec
+#define LOOP_TIME 500  //ms
+#define SLEEP_TIME 30   //sec
 #define SLEEP_MODE 1    //0 = OFF, 1 = ON
 #define BAUDRATE 115200
 #define TEMP_CORR -0.45 //K
@@ -45,6 +46,7 @@
 //Var
 int dutyCycle, DutyCounter;
 float Temperatur, Luftdruck, Luftfeuchtigkeit;
+int LoopTime = LOOP_TIME;
 int SleepTime = SLEEP_TIME;
 int SleepMode = SLEEP_MODE;
 float TempCorr = TEMP_CORR;
@@ -162,86 +164,79 @@ void setup() {
 //Main
 void loop() {
 
-  //********************************************//
-  //_______Wlan & MQTT Verbindung aufbauen______//
+  unsigned long currentMillis = millis();
 
-  WiFi.forceSleepWake(); // Wlan on
-    
-  //Warten bis die Verbindung aufgebaut wurde
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-  }
+	//Verbinden zum MQTT Server
+	if (!client.connected()) {
+	  reconnect();
+	}
+	client.loop();
 
-  //Verbinden zum MQTT Server
-  if (!client.connected()) {
-    reconnect();
-  }
-  client.loop();
+  //Loop mit Delay
+  if (currentMillis - previousMillis >= LoopTime) {
+    previousMillis = currentMillis;
 
-  //********************************************//
-  //___________________BME280___________________//
+    //********************************************//
+    //___________________BME280___________________//
 
-  //Temperatur Messung
-  Temperatur = 0;
-  for (int i=1; i <= 3; i++){
-    Temperatur = Temperatur + bme.readTemperature();
-  }
-  Temperatur = Temperatur / 3;
-  Temperatur = Temperatur + TempCorr;
-  client.publish(MQTT_TX_TEMP,String(Temperatur).c_str(),true); //MQTT
+    //Temperatur Messung
+    Temperatur = 0;
+    for (int i=1; i <= 3; i++){
+      Temperatur = Temperatur + bme.readTemperature();
+    }
+    Temperatur = Temperatur / 3;
+    Temperatur = Temperatur + TempCorr;
+    client.publish(MQTT_TX_TEMP,String(Temperatur).c_str(),true); //MQTT
 
-  //Luftfeuchtigkeit Messung 
-  Luftfeuchtigkeit = 0;
-  for (int i=1; i <= 3; i++){
-    Luftfeuchtigkeit = Luftfeuchtigkeit + bme.readHumidity();
-  }
-  Luftfeuchtigkeit = Luftfeuchtigkeit / 3;
-  client.publish(MQTT_TX_HUMI,String(Luftfeuchtigkeit).c_str(),true); //MQTT
+    //Luftfeuchtigkeit Messung 
+    Luftfeuchtigkeit = 0;
+    for (int i=1; i <= 3; i++){
+      Luftfeuchtigkeit = Luftfeuchtigkeit + bme.readHumidity();
+    }
+    Luftfeuchtigkeit = Luftfeuchtigkeit / 3;
+    client.publish(MQTT_TX_HUMI,String(Luftfeuchtigkeit).c_str(),true); //MQTT
 
-  //Luftdruck Messung
-  Luftdruck = 0;
-  for (int i=1; i <= 3; i++){
-    Luftdruck = Luftdruck + (bme.readPressure() / 100.0F);
-  }
-  Luftdruck = Luftdruck / 3;
-  client.publish(MQTT_TX_PRES,String(Luftdruck).c_str(),true); //MQTT
+    //Luftdruck Messung
+    Luftdruck = 0;
+    for (int i=1; i <= 3; i++){
+      Luftdruck = Luftdruck + (bme.readPressure() / 100.0F);
+    }
+    Luftdruck = Luftdruck / 3;
+    client.publish(MQTT_TX_PRES,String(Luftdruck).c_str(),true); //MQTT
 
-  //********************************************//
-  //___________________IMA290___________________//
+    //********************************************//
+    //___________________IMA290___________________//
 
-  //Shunt Spannung
-  shuntVoltage_mV = ina219.getShuntVoltage_mV();
-  client.publish(MQTT_TX_SHU_V,String(shuntVoltage_mV).c_str(),true); //MQTT
+    //Shunt Spannung
+    shuntVoltage_mV = ina219.getShuntVoltage_mV();
+    client.publish(MQTT_TX_SHU_V,String(shuntVoltage_mV).c_str(),true); //MQTT
 
-  //Verbraucher Spannung
-  busVoltage_V = ina219.getBusVoltage_V();
-  client.publish(MQTT_TX_BUS_V,String(busVoltage_V).c_str(),true); //MQTT
+    //Verbraucher Spannung
+    busVoltage_V = ina219.getBusVoltage_V();
+    client.publish(MQTT_TX_BUS_V,String(busVoltage_V).c_str(),true); //MQTT
 
-  //Gesamtspannung
-  loadVoltage_V  = busVoltage_V + (shuntVoltage_mV/1000);
-  client.publish(MQTT_TX_LOAD_V,String(loadVoltage_V).c_str(),true); //MQTT
+    //Gesamtspannung
+    loadVoltage_V  = busVoltage_V + (shuntVoltage_mV/1000);
+    client.publish(MQTT_TX_LOAD_V,String(loadVoltage_V).c_str(),true); //MQTT
 
-  //Strom
-  current_mA = ina219.getCurrent_mA();
-  client.publish(MQTT_TX_AMP,String(current_mA).c_str(),true); //MQTT
+    //Strom
+    current_mA = ina219.getCurrent_mA();
+    client.publish(MQTT_TX_AMP,String(current_mA).c_str(),true); //MQTT
 
-  //Leistung
-  power_mW = ina219.getPower_mW();
-  client.publish(MQTT_TX_PWR,String(power_mW).c_str(),true); //MQTT
+    //Leistung
+    power_mW = ina219.getPower_mW();
+    client.publish(MQTT_TX_PWR,String(power_mW).c_str(),true); //MQTT
   
-  //********************************************//
-  //______________Energiesparmodus______________//
+    //Energiesparmodus
+    if (SleepMode){
 
-  //WiFi.forceSleepBegin(); //Wlan Off
+      delay(500);
 
-  if (SleepMode){
-
-    delay(500);
-
-    // Die Zeit ist in Mikrosekunden angegeben
-    // 1 Sekunde = 1.000.000 Mikrosekunden
-    ESP.deepSleep(1e6 * SleepTime); // ESP8266 in den Deep-Sleep-Modus versetzen
-  }    
+      // Die Zeit ist in Mikrosekunden angegeben
+      // 1 Sekunde = 1.000.000 Mikrosekunden
+      ESP.deepSleep(1e6 * SleepTime); // ESP8266 in den Deep-Sleep-Modus versetzen
+    }    
+  }
 }
 
 
